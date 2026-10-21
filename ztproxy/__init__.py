@@ -27,7 +27,8 @@ def _device_secrets_from_environment():
     return parsed
 
 def create_app(test_config=None):
-    app = Flask(__name__, instance_relative_config=True)
+    # The application package lives beside (not above) the root templates/ and static/ folders.
+    app = Flask(__name__, template_folder="../templates", static_folder="../static", instance_relative_config=True)
     app.config.from_mapping(
         APP_ENV=os.environ.get("APP_ENV", "development").lower(),
         SECRET_KEY=os.environ.get("FLASK_SECRET_KEY", "dev-only-change-this-flask-key"),
