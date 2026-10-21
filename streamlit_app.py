@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 
 import streamlit as st
+st.set_page_config(page_title="Zero-Trust Cloud Access Proxy", page_icon="🛡️", layout="wide", initial_sidebar_state="expanded")
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -34,8 +35,6 @@ DEPLOYMENT_SECRETS = load_deployment_secrets()
 
 from ztproxy import create_app
 from ztproxy.security import sign_request
-
-st.set_page_config(page_title="Zero-Trust Cloud Access Proxy", page_icon="🛡️", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
 <style>
