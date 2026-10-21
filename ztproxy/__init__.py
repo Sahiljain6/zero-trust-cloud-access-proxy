@@ -11,6 +11,14 @@ DEVELOPMENT_DEVICE_SECRETS = {
     "device_node_01": "local-demo-device-key-change-this-001",
     "admin_node": "local-demo-admin-key-change-this-002",
 }
+_PLACEHOLDER_MARKERS = (
+    "replace_with", "change_this", "placeholder", "example",
+    "your_random", "your_secret", "todo",
+)
+
+def _looks_like_placeholder(value):
+    lowered = str(value or "").lower()
+    return not lowered or any(marker in lowered for marker in _PLACEHOLDER_MARKERS)
 
 def _device_secrets_from_environment():
     raw = os.environ.get("DEVICE_SECRETS_JSON", "").strip()
@@ -27,7 +35,7 @@ def _device_secrets_from_environment():
     return parsed
 
 def create_app(test_config=None):
-    # The application package lives beside (not above) the root templates/ and static/ folders.
+    # The application package lives beside (not above) the root templates/ and static folders.
     app = Flask(__name__, template_folder="../templates", static_folder="../static", instance_relative_config=True)
     app.config.from_mapping(
         APP_ENV=os.environ.get("APP_ENV", "development").lower(),
@@ -42,12 +50,25 @@ def create_app(test_config=None):
     if test_config:
         app.config.update(test_config)
     if app.config["APP_ENV"] == "production":
+        secrets_to_check = [
+            app.config["SECRET_KEY"],
+            app.config["ADMIN_TOKEN"],
+            *app.config["DEVICE_SECRETS"].values(),
+        ]
+        if any(_looks_like_placeholder(value) for value in secrets_to_check):
+            raise RuntimeError("Production configuration contains a recognizable placeholder. Replace all example secrets.")
         if len(app.config["SECRET_KEY"]) < 32 or app.config["SECRET_KEY"] == "dev-only-change-this-flask-key":
             raise RuntimeError("Production requires a unique FLASK_SECRET_KEY of at least 32 characters.")
         if len(app.config["ADMIN_TOKEN"]) < 24 or app.config["ADMIN_TOKEN"] == "local-admin-token-change-this-value":
             raise RuntimeError("Production requires a private ADMIN_TOKEN of at least 24 characters.")
-        if not os.environ.get("DEVICE_SECRETS_JSON") or not app.config["DEVICE_SECRETS"] or any(len(secret) < 32 or secret in DEVELOPMENT_DEVICE_SECRETS.values() for secret in app.config["DEVICE_SECRETS"].values()):
-            raise RuntimeError("Production requires unique per-device secrets of at least 32 characters, supplied via DEVICE_SECRETS_JSON.")
+        device_keys = list(app.config["DEVICE_SECRETS"].values())
+        if (
+            not os.environ.get("DEVICE_SECRETS_JSON")
+            or not device_keys
+            or any(len(key) < 32 or key in DEVELOPMENT_DEVICE_SECRETS.values() for key in device_keys)
+            or len(set(device_keys)) != len(device_keys)
+        ):
+            raise RuntimeError("Production requires distinct per-device secrets of at least 32 characters, supplied via DEVICE_SECRETS_JSON.")
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
     init_db(app)
     register_routes(app)
