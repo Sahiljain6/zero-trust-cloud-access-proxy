@@ -61,6 +61,8 @@ The proxy reconstructs the exact message, calculates HMAC-SHA256 with that devic
     ├── tests/test_app.py
     ├── .env.example
     ├── requirements.txt
+    ├── Dockerfile / .dockerignore
+    ├── Procfile
     └── .github/workflows/tests.yml
 
 ## Run locally (Windows PowerShell)
@@ -123,6 +125,15 @@ Example signed envelope for POST /api/verify:
     }
 
 The signature must be HMAC-SHA256 over the canonical message above, generated with the configured key and a current timestamp.
+
+## Container and hosted deployment
+
+The repository includes a non-root Docker image and a Procfile for Linux hosts that support Gunicorn. For Docker, first create a private production environment file with APP_ENV=production, a unique FLASK_SECRET_KEY (32+ characters), a private ADMIN_TOKEN (24+ characters), and a DEVICE_SECRETS_JSON mapping whose unique device secrets are each at least 32 characters. Do not deploy the example credentials from .env.example.
+
+    docker build -t zero-trust-cloud-access-proxy .
+    docker run --env-file .env -p 5000:5000 -v ztproxy-data:/data zero-trust-cloud-access-proxy
+
+The named volume keeps SQLite device and audit data across container recreation. Production hosting must use HTTPS, persistent writable storage, and secret/environment settings. The app intentionally refuses to start in production if required secrets are missing or still use public development keys.
 
 ## Run tests
 
