@@ -1,105 +1,130 @@
-"""Focused tests for the Zero-Trust Cloud Access Proxy demo."""
-
+"""Integration tests for the signed request and zero-trust policy pipeline."""
 import base64
+import tempfile
+import time
 import unittest
+from ztproxy import create_app
+from ztproxy.security import sign_request
 
-import app as proxy_app
-
-
-class ProxyLogicTests(unittest.TestCase):
+class ProxyWebTests(unittest.TestCase):
     def setUp(self):
-        self.original_devices = proxy_app.AUTHORIZED_DEVICES.copy()
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.device_secrets = {
+            "device_node_01": "unit-test-device-shared-secret-00001",
+            "admin_node": "unit-test-admin-shared-secret-000002",
+        }
+        self.app = create_app({
+            "TESTING": True, "APP_ENV": "test", "SECRET_KEY": "unit-test-flask-secret-key-more-than-32",
+            "DATABASE_PATH": f"{self.temp_dir.name}/test.sqlite3", "DEVICE_SECRETS": self.device_secrets,
+            "ADMIN_TOKEN": "unit-test-admin-token-long-enough", "REQUEST_TTL_SECONDS": 300, "MAX_PAYLOAD_BYTES": 8192,
+        })
+        self.client = self.app.test_client()
 
     def tearDown(self):
-        proxy_app.AUTHORIZED_DEVICES.clear()
-        proxy_app.AUTHORIZED_DEVICES.update(self.original_devices)
+        self.temp_dir.cleanup()
 
-    def test_authorized_device_with_valid_payload_is_accepted(self):
-        request = proxy_app.secure_payload("private test record", proxy_app.SHARED_SECRET)
-        result = proxy_app.authenticate_and_forward("device_node_01", request)
-        self.assertEqual(result["status"], "success")
-        self.assertIn("Simulated cloud proxy accepted payload", result["message"])
+    def envelope(self, device_id="device_node_01", payload="hello secure cloud", nonce=None, timestamp=None, secret=None):
+        timestamp = timestamp if timestamp is not None else int(time.time())
+        nonce = nonce or ("nonce" + str(time.time_ns())).ljust(20, "x")
+        payload_b64 = base64.b64encode(payload.encode("utf-8")).decode("ascii")
+        secret = secret or self.device_secrets.get(device_id, "unknown-device-secret-long-enough")
+        return {"device_id": device_id, "timestamp": timestamp, "nonce": nonce, "payload_b64": payload_b64, "signature": sign_request(device_id, timestamp, nonce, payload_b64, secret)}
+
+    def test_dashboard_and_static_assets_load(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Zero-Trust Cloud Access Proxy", response.data)
+        self.assertIn(b"static/css/app.css", response.data)
+        self.assertEqual(self.client.get("/static/js/app.js").status_code, 200)
+
+    def test_health_and_device_list_do_not_expose_secrets(self):
+        self.assertEqual(self.client.get("/api/health").get_json()["status"], "ok")
+        result = self.client.get("/api/devices").get_json()
+        self.assertIn("device_node_01", str(result))
+        self.assertNotIn(self.device_secrets["device_node_01"], str(result))
+
+    def test_valid_signed_request_is_allowed(self):
+        response = self.client.post("/api/verify", json=self.envelope())
+        result = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(result["decision"], "ALLOW")
+        self.assertEqual([x["status"] for x in result["checks"]], ["passed"] * 5)
+
+    def test_modified_payload_is_denied(self):
+        body = self.envelope()
+        body["payload_b64"] = base64.b64encode(b"modified content").decode("ascii")
+        response = self.client.post("/api/verify", json=body)
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("integrity", response.get_json()["message"].lower())
+
+    def test_wrong_device_secret_is_denied(self):
+        body = self.envelope(secret="not-the-configured-device-secret-0000")
+        response = self.client.post("/api/verify", json=body)
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.get_json()["checks"][-1]["status"], "failed")
 
     def test_unknown_device_is_denied(self):
-        request = proxy_app.secure_payload("private test record", proxy_app.SHARED_SECRET)
-        result = proxy_app.authenticate_and_forward("unknown_device", request)
-        self.assertEqual(result["status"], "error")
-        self.assertIn("authorization failed", result["message"])
+        response = self.client.post("/api/verify", json=self.envelope(device_id="rogue_device_01"))
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.get_json()["checks"][-1]["name"], "Device authorization")
 
-    def test_inactive_device_is_denied(self):
-        proxy_app.AUTHORIZED_DEVICES["revoked_device"] = "disabled"
-        request = proxy_app.secure_payload("private test record", proxy_app.SHARED_SECRET)
-        result = proxy_app.authenticate_and_forward("revoked_device", request)
-        self.assertEqual(result["status"], "error")
+    def test_disabled_device_is_denied(self):
+        self.client.patch("/api/devices/device_node_01", headers={"X-Admin-Token": "unit-test-admin-token-long-enough"}, json={"active": False})
+        response = self.client.post("/api/verify", json=self.envelope())
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("authorization", response.get_json()["message"].lower())
 
-    def test_changed_integrity_tag_is_rejected(self):
-        request = proxy_app.secure_payload("original record", proxy_app.SHARED_SECRET)
-        request["integrity_hash"] = "0" * 64
-        result = proxy_app.authenticate_and_forward("device_node_01", request)
-        self.assertEqual(result["status"], "error")
-        self.assertIn("integrity mismatch", result["message"])
+    def test_invalid_admin_token_cannot_change_device(self):
+        response = self.client.patch("/api/devices/device_node_01", headers={"X-Admin-Token": "wrong"}, json={"active": False})
+        self.assertEqual(response.status_code, 403)
+        devices = self.client.get("/api/devices").get_json()["devices"]
+        self.assertEqual(next(d for d in devices if d["device_id"] == "device_node_01")["status"], "active")
 
-    def test_malformed_base64_is_rejected(self):
-        result = proxy_app.authenticate_and_forward(
-            "device_node_01",
-            {"payload": "%%%not-base64%%%", "integrity_hash": "0" * 64},
-        )
-        self.assertEqual(result["status"], "error")
-        self.assertEqual(result["message"], "Malformed payload.")
-
-    def test_malformed_hash_is_rejected(self):
-        request = {"payload": base64.b64encode(b"hello").decode(), "integrity_hash": "bad"}
-        result = proxy_app.authenticate_and_forward("device_node_01", request)
-        self.assertEqual(result["message"], "Malformed payload.")
-
-
-class ProxyEndpointTests(unittest.TestCase):
-    def setUp(self):
-        proxy_app.app.config.update(TESTING=True)
-        self.client = proxy_app.app.test_client()
-
-    def test_valid_simulation_succeeds(self):
-        response = self.client.post(
-            "/api/simulate",
-            json={"device_id": "device_node_01", "data": "hello", "tamper_payload": False},
-        )
+    def test_valid_admin_can_disable_device_and_audit_change(self):
+        response = self.client.patch("/api/devices/device_node_01", headers={"X-Admin-Token": "unit-test-admin-token-long-enough"}, json={"active": False})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["status"], "success")
+        self.assertTrue(any(event["decision"] == "ADMIN" for event in self.client.get("/api/audit").get_json()["events"]))
 
-    def test_unauthorized_device_is_rejected(self):
-        response = self.client.post(
-            "/api/simulate",
-            json={"device_id": "unknown_device", "data": "hello"},
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["status"], "error")
+    def test_expired_timestamp_is_denied(self):
+        response = self.client.post("/api/verify", json=self.envelope(timestamp=int(time.time()) - 1000))
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.get_json()["checks"][-1]["name"], "Freshness")
 
-    def test_tampering_demo_fails_integrity_check(self):
-        response = self.client.post(
-            "/api/simulate",
-            json={"device_id": "device_node_01", "data": "hello", "tamper_payload": True},
-        )
-        self.assertEqual(response.get_json()["status"], "error")
-        self.assertIn("integrity mismatch", response.get_json()["message"])
+    def test_nonce_cannot_be_reused(self):
+        body = self.envelope()
+        first = self.client.post("/api/verify", json=body)
+        second = self.client.post("/api/verify", json=body)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 409)
+        self.assertIn("Replay", second.get_json()["message"])
 
-    def test_rejects_non_object_json(self):
-        response = self.client.post("/api/simulate", json=["not", "an", "object"])
+    def test_invalid_base64_is_denied(self):
+        body = self.envelope(); body["payload_b64"] = "%%%not-base64%%%"
+        self.assertEqual(self.client.post("/api/verify", json=body).status_code, 400)
+
+    def test_bad_input_shape_is_denied(self):
+        response = self.client.post("/api/verify", json=["bad", "shape"])
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.get_json()["status"], "error")
+        self.assertEqual(response.get_json()["decision"], "DENY")
 
-    def test_rejects_payload_over_character_limit(self):
-        response = self.client.post(
-            "/api/simulate",
-            json={"device_id": "device_node_01", "data": "x" * 8_001},
-        )
-        self.assertEqual(response.status_code, 400)
+    def test_payload_over_limit_is_denied(self):
+        body = self.envelope(payload="x" * 8200)
+        response = self.client.post("/api/verify", json=body)
+        self.assertIn(response.status_code, (400, 413))
 
-    def test_sets_baseline_security_headers(self):
+    def test_security_headers_are_present(self):
         response = self.client.get("/")
-        self.assertEqual(response.headers.get("X-Content-Type-Options"), "nosniff")
-        self.assertEqual(response.headers.get("X-Frame-Options"), "DENY")
-        self.assertEqual(response.headers.get("Cache-Control"), "no-store")
+        self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(response.headers["X-Frame-Options"], "DENY")
+        self.assertIn("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
 
+    def test_audit_does_not_store_payload_or_secret(self):
+        secret_payload = "sensitive-content-should-not-be-logged"
+        self.client.post("/api/verify", json=self.envelope(payload=secret_payload))
+        audit_text = str(self.client.get("/api/audit").get_json())
+        self.assertNotIn(secret_payload, audit_text)
+        self.assertNotIn(self.device_secrets["device_node_01"], audit_text)
 
 if __name__ == "__main__":
     unittest.main()

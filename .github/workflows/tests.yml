@@ -1,4 +1,4 @@
-name: Proxy demo tests
+name: Proxy application tests
 
 on:
   push:

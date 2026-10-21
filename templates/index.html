@@ -1,241 +1,87 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#080b0a" />
-    <title>Zero-Trust Cloud Access Proxy</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            colors: {
-              ink: "#080b0a",
-              panel: "#101613",
-              line: "#26332c",
-              acid: "#a6ff65",
-              muted: "#829188",
-            },
-            fontFamily: {
-              mono: ["ui-monospace", "SFMono-Regular", "monospace"],
-              sans: ["Inter", "ui-sans-serif", "system-ui"],
-            },
-            boxShadow: {
-              green: "0 0 34px rgba(166,255,101,.10)",
-            },
-          },
-        },
-      };
-    </script>
-    <style>
-      :root { color-scheme: dark; }
-      body {
-        background-color: #080b0a;
-        background-image:
-          linear-gradient(rgba(166,255,101,.025) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(166,255,101,.025) 1px, transparent 1px),
-          radial-gradient(ellipse at 50% -20%, rgba(69,111,76,.22), transparent 58%);
-        background-size: 36px 36px, 36px 36px, auto;
-      }
-      .scanline::after {
-        content: "";
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        opacity: .08;
-        background: repeating-linear-gradient(transparent 0 3px, rgba(255,255,255,.08) 4px);
-      }
-      .focus-ring:focus-visible { outline: 2px solid #a6ff65; outline-offset: 3px; }
-      @media (prefers-reduced-motion: no-preference) {
-        .enter { animation: enter .55s ease-out both; }
-        @keyframes enter { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-      }
-    </style>
-  </head>
-  <body class="min-h-screen text-slate-100 antialiased">
-    <main class="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-6 sm:px-8 sm:py-10">
-      <header class="enter mb-8 flex items-center justify-between gap-4 border-b border-line pb-5 sm:mb-12">
-        <a class="focus-ring flex items-center gap-3 rounded-sm" href="/" aria-label="Zero-Trust Proxy home">
-          <span class="grid h-10 w-10 place-items-center border border-acid/50 bg-acid/10 text-acid">
-            <svg viewBox="0 0 24 24" fill="none" class="h-5 w-5" aria-hidden="true">
-              <path d="M12 3 19 6v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3Z" stroke="currentColor" stroke-width="1.6"/>
-              <path d="m9 12 2 2 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </span>
-          <span class="font-mono text-xs font-semibold uppercase tracking-[.2em] text-slate-300">ZT / ACCESS LAB</span>
-        </a>
-        <span class="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-[.16em] text-muted sm:flex">
-          <span class="h-1.5 w-1.5 rounded-full bg-acid shadow-[0_0_10px_#a6ff65]"></span>
-          Local simulation
-        </span>
-      </header>
-
-      <section class="enter grid flex-1 items-start gap-8 lg:grid-cols-[.9fr_1.1fr] lg:gap-16">
-        <div class="pt-2">
-          <div class="mb-5 flex items-center gap-2 font-mono text-[11px] uppercase tracking-[.2em] text-acid">
-            <span class="h-px w-7 bg-acid"></span>
-            Device identity / payload integrity
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Zero-Trust Cloud Access Proxy</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Zero Trust Access Lab home">
+        <span class="brand-mark" aria-hidden="true">ZT</span>
+        <span><strong>ZERO TRUST</strong><small>ACCESS LAB / CNS MICROPROJECT</small></span>
+      </a>
+      <div class="topbar-status"><span class="status-light"></span><span id="service-status">Connecting to local service…</span></div>
+    </header>
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow"><span></span> DEVICE IDENTITY · REQUEST INTEGRITY · REPLAY DEFENCE</p>
+          <h1>Trust is not assumed.<br><em>Every request is checked.</em></h1>
+          <p class="hero-intro">A working web demonstration of a zero-trust request pipeline. A simulated client signs its payload, and the proxy independently verifies device status, request freshness, HMAC-SHA256 integrity, and nonce uniqueness.</p>
+          <div class="metric-strip">
+            <div><span class="metric-label">ACCESS POLICY</span><strong>Default deny</strong></div>
+            <div><span class="metric-label">INTEGRITY</span><strong>HMAC-SHA256</strong></div>
+            <div><span class="metric-label">REPLAY CHECK</span><strong>SQLite nonce store</strong></div>
           </div>
-          <h1 class="max-w-xl text-4xl font-semibold leading-[1.08] tracking-tight sm:text-5xl lg:text-[3.6rem]">
-            Zero-Trust Cloud
-            <span class="block text-acid">Access Proxy</span>
-          </h1>
-          <p class="mt-5 max-w-lg text-sm leading-7 text-slate-400 sm:text-base">
-            A hands-on demonstration of device allowlisting and HMAC-SHA256
-            integrity checks before a payload is accepted.
-          </p>
-          <p class="mt-3 font-mono text-xs tracking-wide text-slate-500">
-            By Sahil Rajkumar Jain and Dhruv Gada
-          </p>
-
-          <div class="mt-8 grid max-w-lg grid-cols-2 gap-3">
-            <div class="border border-line bg-panel/70 p-4">
-              <div class="font-mono text-[10px] uppercase tracking-[.16em] text-muted">Identity gate</div>
-              <div class="mt-2 text-sm font-medium text-slate-200">Device allowlist</div>
-            </div>
-            <div class="border border-line bg-panel/70 p-4">
-              <div class="font-mono text-[10px] uppercase tracking-[.16em] text-muted">Integrity check</div>
-              <div class="mt-2 text-sm font-medium text-slate-200">HMAC-SHA256</div>
-            </div>
-          </div>
-
-          <aside class="mt-6 max-w-lg border-l-2 border-amber-400/70 bg-amber-400/5 px-4 py-3">
-            <p class="text-xs leading-5 text-amber-100/80">
-              <strong class="font-semibold text-amber-200">Demo scope:</strong>
-              this uses an EAP-style device allowlist, not the EAP protocol itself.
-              HMAC-SHA256 is the working integrity check; no post-quantum algorithm
-              is implemented. Payload forwarding is simulated locally, and the example
-              shared key is not suitable for production.
-            </p>
-          </aside>
         </div>
-
-        <div class="space-y-5">
-          <section class="scanline relative overflow-hidden border border-line bg-panel shadow-green">
-            <div class="flex items-center justify-between border-b border-line px-5 py-4 sm:px-6">
-              <div>
-                <p class="font-mono text-[10px] uppercase tracking-[.2em] text-muted">01 / Request builder</p>
-                <h2 class="mt-1 text-base font-semibold text-slate-100">Send a test payload</h2>
+        <aside class="scope-card">
+          <div class="scope-icon" aria-hidden="true">i</div>
+          <div><h2>Implementation boundary</h2><p>This lab implements signed-request validation and device state. EAP/802.1X or RADIUS is not connected, and accepted requests are not forwarded to a real cloud service. Use development keys only for local demonstration.</p></div>
+        </aside>
+      </section>
+      <section class="workspace">
+        <div class="main-column">
+          <section class="panel request-panel">
+            <div class="panel-heading"><div><p class="section-index">01 / CLIENT SIMULATOR</p><h2>Build a signed request</h2></div><span class="pill pill-green">HMAC AUTH</span></div>
+            <form id="request-form">
+              <div class="form-grid">
+                <div class="field"><label for="device-id">Registered device</label><select id="device-id" name="device_id" required><option value="">Loading device registry…</option></select><small>Only devices configured on the server can verify.</small></div>
+                <div class="field"><label for="device-secret">Client-side shared secret</label><input id="device-secret" name="device_secret" type="password" required minlength="24" autocomplete="off" placeholder="Paste this device's configured key"><small>Used locally by Web Crypto to sign. The secret is not included in the API request.</small></div>
               </div>
-              <span class="border border-acid/30 bg-acid/5 px-2 py-1 font-mono text-[9px] uppercase tracking-widest text-acid">POST</span>
-            </div>
-            <form id="proxy-form" class="relative z-10 space-y-5 p-5 sm:p-6">
-              <div>
-                <label for="device-id" class="mb-2 block font-mono text-[11px] uppercase tracking-wider text-slate-400">Device ID</label>
-                <div class="relative">
-                  <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center font-mono text-acid/60">&gt;_</span>
-                  <input id="device-id" name="device_id" type="text" value="device_node_01" required maxlength="100" autocomplete="off"
-                    class="focus-ring w-full border border-line bg-ink px-3 py-3 pl-12 font-mono text-sm text-acid placeholder:text-slate-600" />
-                </div>
-                <p class="mt-2 text-[11px] text-slate-500">Try <code class="text-slate-300">admin_node</code> or an unknown ID.</p>
-              </div>
-
-              <div>
-                <label for="data" class="mb-2 block font-mono text-[11px] uppercase tracking-wider text-slate-400">Data payload</label>
-                <textarea id="data" name="data" rows="4" maxlength="8000" required
-                  class="focus-ring w-full resize-y border border-line bg-ink px-3 py-3 font-mono text-sm leading-6 text-slate-200 placeholder:text-slate-600">Requesting secure records</textarea>
-              </div>
-
-              <label for="tamper" class="focus-ring flex cursor-pointer items-start gap-3 border border-line bg-ink/70 p-3.5">
-                <input id="tamper" name="tamper_payload" type="checkbox"
-                  class="mt-0.5 h-4 w-4 shrink-0 accent-red-400" />
-                <span>
-                  <span class="block text-sm font-medium text-slate-200">Simulate Tampering</span>
-                  <span class="mt-1 block text-xs leading-5 text-slate-500">Change the integrity hash before verification to show a failed check.</span>
-                </span>
-              </label>
-
-              <button id="submit-button" type="submit"
-                class="focus-ring group flex w-full items-center justify-center gap-2 bg-acid px-4 py-3.5 font-mono text-xs font-bold uppercase tracking-[.13em] text-ink transition hover:bg-[#c1ff94] disabled:cursor-wait disabled:opacity-60">
-                <span id="button-label">Send to Zero-Trust Proxy</span>
-                <svg viewBox="0 0 20 20" fill="none" class="h-4 w-4 transition-transform group-hover:translate-x-1" aria-hidden="true">
-                  <path d="M3 10h13m-5-5 5 5-5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-              </button>
-              <p id="form-error" class="hidden text-sm text-red-300" role="alert"></p>
+              <div class="field"><div class="label-row"><label for="payload">Request payload</label><span id="payload-count">0 / 8192 bytes</span></div><textarea id="payload" name="payload" maxlength="8192" rows="4" required>Requesting secure confidential cloud database container.</textarea></div>
+              <label class="tamper-control" for="tamper"><input id="tamper" type="checkbox"><span><strong>Simulate a man-in-the-middle modification</strong><small>Sign the original payload, then alter it in transit. The proxy should reject the invalid HMAC.</small></span></label>
+              <div class="form-actions"><button id="send-request" class="button button-primary" type="submit"><span>Run zero-trust checks</span><span aria-hidden="true">↗</span></button><p class="form-hint">The browser creates a fresh timestamp and unique nonce for every attempt.</p></div>
+              <p id="form-error" class="inline-error" role="alert" hidden></p>
             </form>
           </section>
-
-          <section id="log-panel" class="border border-line bg-panel/90 transition-colors" aria-live="polite">
-            <div class="flex items-center justify-between border-b border-line px-5 py-3.5">
-              <div class="flex items-center gap-2">
-                <span id="log-dot" class="h-2 w-2 rounded-full bg-slate-600"></span>
-                <h2 class="font-mono text-[11px] font-semibold uppercase tracking-[.17em] text-slate-300">Proxy Live Log</h2>
-              </div>
-              <span id="log-state" class="font-mono text-[9px] uppercase tracking-widest text-muted">Awaiting request</span>
-            </div>
-            <div class="min-h-28 p-5">
-              <p class="mb-2 font-mono text-[10px] uppercase tracking-widest text-slate-600">Server response</p>
-              <pre id="log-output" class="whitespace-pre-wrap break-words font-mono text-xs leading-6 text-slate-500">Your simulation result will appear here.</pre>
-            </div>
+          <section class="panel result-panel" aria-live="polite">
+            <div class="panel-heading"><div><p class="section-index">02 / POLICY ENGINE</p><h2>Verification trace</h2></div><span id="decision-pill" class="pill">WAITING FOR REQUEST</span></div>
+            <div id="empty-trace" class="empty-state"><span class="empty-symbol">⌁</span><p>Send a signed request to inspect each control in the pipeline.</p></div>
+            <ol id="check-list" class="check-list" hidden></ol>
+            <div id="result-message" class="result-message" hidden></div>
+            <div id="payload-preview-wrap" class="payload-preview" hidden><span>Accepted payload preview</span><code id="payload-preview"></code></div>
           </section>
         </div>
+        <aside class="side-column">
+          <section class="panel device-panel">
+            <div class="panel-heading"><div><p class="section-index">03 / ACCESS CONTROL</p><h2>Device registry</h2></div><button id="refresh-devices" class="icon-button" type="button" aria-label="Refresh device registry" title="Refresh">↻</button></div>
+            <p class="panel-description">Device state is stored in SQLite. Disabling a device causes subsequent requests to be denied.</p>
+            <div id="device-list" class="device-list"><p class="muted">Loading registered devices…</p></div>
+            <details class="admin-controls"><summary>Device administration</summary><p class="small-note">A development admin token is required to change device state. In production, use a private token unique to your deployment.</p><label for="admin-token">Admin token</label><input id="admin-token" type="password" autocomplete="off" placeholder="Enter admin token"><p id="admin-message" class="admin-message" role="status"></p></details>
+          </section>
+          <section class="panel audit-panel">
+            <div class="panel-heading"><div><p class="section-index">04 / ACCOUNTABILITY</p><h2>Security audit</h2></div><button id="refresh-audit" class="icon-button" type="button" aria-label="Refresh audit events" title="Refresh">↻</button></div>
+            <p class="panel-description">Latest decisions are persisted. Raw payloads, HMAC signatures, and shared keys are never written to the audit log.</p>
+            <div id="audit-list" class="audit-list"><p class="muted">Loading audit events…</p></div>
+          </section>
+        </aside>
       </section>
-
-      <footer class="mt-10 border-t border-line pt-4 font-mono text-[10px] uppercase tracking-widest text-slate-600">
-        Educational demo · HMAC verifies integrity, not sender identity
-      </footer>
+      <section class="architecture panel">
+        <div class="panel-heading"><div><p class="section-index">SYSTEM MODEL</p><h2>How each request moves</h2></div></div>
+        <div class="architecture-flow">
+          <div class="flow-step"><span>01</span><strong>Client</strong><small>Encodes payload, nonce, timestamp</small></div><div class="flow-arrow" aria-hidden="true">→</div>
+          <div class="flow-step"><span>02</span><strong>Device policy</strong><small>Registered and active?</small></div><div class="flow-arrow" aria-hidden="true">→</div>
+          <div class="flow-step"><span>03</span><strong>Integrity + replay</strong><small>Verify HMAC and unique nonce</small></div><div class="flow-arrow" aria-hidden="true">→</div>
+          <div class="flow-step"><span>04</span><strong>Decision + audit</strong><small>Allow or deny and record event</small></div>
+        </div>
+      </section>
     </main>
-
-    <script>
-      const form = document.getElementById("proxy-form");
-      const button = document.getElementById("submit-button");
-      const buttonLabel = document.getElementById("button-label");
-      const errorMessage = document.getElementById("form-error");
-      const panel = document.getElementById("log-panel");
-      const output = document.getElementById("log-output");
-      const state = document.getElementById("log-state");
-      const dot = document.getElementById("log-dot");
-
-      function showResult(result, isSuccess) {
-        panel.classList.remove("border-red-500/60", "shadow-[0_0_28px_rgba(248,113,113,.10)]", "border-acid/50", "shadow-green");
-        dot.className = "h-2 w-2 rounded-full " + (isSuccess ? "bg-acid shadow-[0_0_10px_#a6ff65]" : "bg-red-400 shadow-[0_0_10px_#f87171]");
-        panel.classList.add(isSuccess ? "border-acid/50" : "border-red-500/60");
-        panel.classList.add(isSuccess ? "shadow-green" : "shadow-[0_0_28px_rgba(248,113,113,.10)]");
-        state.className = "font-mono text-[9px] uppercase tracking-widest " + (isSuccess ? "text-acid" : "text-red-300");
-        state.textContent = isSuccess ? "Integrity verified" : "Request rejected";
-        output.className = "whitespace-pre-wrap break-words font-mono text-xs leading-6 " + (isSuccess ? "text-acid" : "text-red-300");
-        output.textContent = JSON.stringify(result, null, 2);
-      }
-
-      form.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        errorMessage.classList.add("hidden");
-        button.disabled = true;
-        buttonLabel.textContent = "Verifying payload…";
-        state.textContent = "Request in progress";
-        output.textContent = "Checking device identity and message integrity…";
-        output.className = "whitespace-pre-wrap break-words font-mono text-xs leading-6 text-slate-400";
-        dot.className = "h-2 w-2 animate-pulse rounded-full bg-amber-300";
-
-        const payload = {
-          device_id: document.getElementById("device-id").value.trim(),
-          data: document.getElementById("data").value,
-          tamper_payload: document.getElementById("tamper").checked,
-        };
-
-        try {
-          const response = await fetch("/api/simulate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Accept": "application/json" },
-            body: JSON.stringify(payload),
-          });
-          const result = await response.json();
-          showResult(result, response.ok && result.status === "success");
-          if (!response.ok) {
-            errorMessage.textContent = result.message || "The request could not be processed.";
-            errorMessage.classList.remove("hidden");
-          }
-        } catch (_error) {
-          showResult({ status: "error", message: "Could not reach the local demo server." }, false);
-          errorMessage.textContent = "Check that the server is running and try again.";
-          errorMessage.classList.remove("hidden");
-        } finally {
-          button.disabled = false;
-          buttonLabel.textContent = "Send to Zero-Trust Proxy";
-        }
-      });
-    </script>
-  </body>
+    <footer><span>EDUCATIONAL SECURITY LAB</span><span>HMAC is message authentication, not encryption.</span><span>© Zero-Trust Cloud Access Proxy</span></footer>
+  </div>
+</body>
 </html>

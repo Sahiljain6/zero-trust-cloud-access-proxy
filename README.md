@@ -1,124 +1,142 @@
 # Zero-Trust Cloud Access Proxy
 
-A small, interactive Python/Flask microproject demonstrating a zero-trust-style request gate. Each simulated request is checked against a device allowlist and its payload is verified with an HMAC-SHA256 integrity tag before the demo reports acceptance.
+A structured Flask web application for the Cryptography and Network Security microproject by **Sahil Rajkumar Jain** and **Dhruv Gada**. It demonstrates a zero-trust request pipeline with device allowlisting, client-side HMAC-SHA256 signing, freshness validation, replay protection, persistent decisions, and an audit trail.
 
-**Project scope:** this is an educational simulation. It does not implement the EAP protocol or a RADIUS/802.1X service, connect to a real cloud resource, or provide a production access gateway. The current code demonstrates HMAC-SHA256; it does **not** implement a post-quantum cryptographic algorithm. The academic report discusses post-quantum cryptography as a comparison/trade-off, while this lightweight implementation uses HMAC-SHA256 for its working integrity demonstration.
+**Scope:** this application implements local signed-request validation and device state. It does not implement EAP/802.1X or connect to a RADIUS server. It does not forward requests to a real cloud resource. HMAC-SHA256 is implemented; a post-quantum cryptographic algorithm is not. The architecture leaves clear integration points for those extensions.
 
-## What it demonstrates
+## Features
 
-- **Zero-trust-style request checks:** requests are not accepted solely because of network location.
-- **Device authorization:** only device IDs marked `active` in the in-memory registry are accepted.
-- **Payload integrity:** the proxy recalculates HMAC-SHA256 and uses `hmac.compare_digest` for a constant-time tag comparison.
-- **Tampering scenario:** the UI can intentionally modify the integrity tag to demonstrate rejection.
-- **Input handling:** JSON shape, field types, device ID length, payload length, and request size are checked.
-- **Baseline browser headers:** responses set `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, and `Cache-Control` headers.
-- **Automated tests:** tests cover accepted requests, unknown/inactive devices, tampering, malformed payloads, endpoint validation, and browser headers.
+- Client-side HMAC-SHA256 signing through the browser Web Crypto API. The shared key is not included in the API request.
+- Device authorization checks against a SQLite registry.
+- Timestamp freshness checks (default ±300 seconds).
+- Unique per-device nonce stored in SQLite to reject replayed signed requests.
+- Constant-time signature comparison with hmac.compare_digest.
+- Persistent audit events for decisions and device-state changes. Raw payloads, secrets, and signatures are not stored in the audit log.
+- Admin-token-protected device enable/disable controls.
+- Request and payload limits, restrictive browser security headers, and a responsive frontend.
+- Integration tests and a GitHub Actions workflow.
 
-## Request flow
+## Architecture
 
-```text
-Browser test form
-       |
+    Browser Client Simulator
+       | UTF-8 payload + nonce + timestamp + HMAC-SHA256
        v
-POST /api/simulate (validate JSON and limits)
-       |
+    Flask API / Input Boundary
+       | JSON validation + request limits
        v
-Device allowlist check (EAP/NAC-inspired simulation)
-       |
-       v
-Decode payload + recompute HMAC-SHA256
-       |
-       v
-Constant-time integrity comparison
-       |
-       +---- failed identity/integrity --> Reject and explain why
-       |
-       +---- checks pass ---------------> Report simulated acceptance
-```
+    Zero-Trust Policy Pipeline
+       1. Device active?
+       2. Timestamp fresh?
+       3. HMAC matches?
+       4. Nonce already seen?
+       | DENY                 | ALLOW (local simulation only)
+       v                      v
+    SQLite device state, replay-protection store, and audit events
 
-The form sends sample input to the Flask endpoint. For this demonstration, the server generates the sample integrity tag so the shared secret does not need to be placed in browser code. Selecting **Simulate Tampering** intentionally corrupts the tag before verification.
+### Request-signing format
 
-## Run locally
+The client base64-encodes its UTF-8 payload and signs this versioned canonical string:
+
+    v1
+    <device_id>
+    <unix_timestamp_seconds>
+    <nonce>
+    <payload_base64>
+
+The proxy reconstructs the exact message, calculates HMAC-SHA256 with that device's server-configured key, and compares signatures in constant time. The request is denied when the device is inactive, the timestamp is outside the allowed window, the signature mismatches, or the nonce has already been used. Nonce reservation and the successful audit entry are committed atomically in SQLite.
+
+## Project structure
+
+    .
+    ├── app.py
+    ├── wsgi.py
+    ├── ztproxy/
+    │   ├── __init__.py
+    │   ├── routes.py
+    │   ├── security.py
+    │   └── storage.py
+    ├── templates/index.html
+    ├── static/css/app.css
+    ├── static/js/app.js
+    ├── tests/test_app.py
+    ├── .env.example
+    ├── requirements.txt
+    └── .github/workflows/tests.yml
+
+## Run locally (Windows PowerShell)
 
 Python 3.10+ is recommended.
 
-```bash
-python -m venv .venv
-```
+    git clone https://github.com/Sahiljain6/zero-trust-cloud-access-proxy.git
+    cd zero-trust-cloud-access-proxy
+    python -m venv .venv
+    .\.venv\Scripts\Activate.ps1
+    pip install -r requirements.txt
+    Copy-Item .env.example .env
+    python app.py
 
-Windows PowerShell:
+Open http://127.0.0.1:5000. On macOS/Linux, create and activate a virtual environment, install requirements.txt, copy .env.example to .env, then run python app.py.
 
-```powershell
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-Copy-Item .env.example .env
-python app.py
-```
+### Test the normal flow
 
-macOS/Linux:
+1. Select device_node_01 in the dashboard.
+2. Copy that device's key from the local .env file into Client-side shared secret. The browser signs with Web Crypto; the secret is not sent in the API request.
+3. Click Run zero-trust checks. Expected: ALLOW, with five passing checks.
+4. Turn on Simulate a man-in-the-middle modification and retry. Expected: payload integrity is rejected.
+5. Use the Device Registry controls with the admin token to disable the device, then retry. The request should be denied.
 
-```bash
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-python app.py
-```
+The keys in .env.example are public development examples. Replace them before deployment. Never paste real production credentials into a public/shared browser.
 
-The application does not automatically load `.env`; environment variables must be set in the shell or by your chosen local environment manager. The `.env` file is ignored by Git. The `.env.example` file is documentation only.
+## Configuration
 
-PowerShell example to set the optional key for the current terminal session:
+app.py loads .env using python-dotenv.
 
-```powershell
-$env:PROXY_SHARED_SECRET = "replace-with-a-long-random-local-demo-secret"
-$env:PORT = "5000"
-python app.py
-```
+| Variable | Purpose |
+|---|---|
+| APP_ENV | development or production; production checks required secrets |
+| FLASK_SECRET_KEY | Unique Flask secret key; at least 32 characters for production |
+| ADMIN_TOKEN | Token for device enable/disable control; at least 24 characters for production |
+| DEVICE_SECRETS_JSON | JSON mapping of configured device IDs to unique HMAC keys; each at least 32 characters for production |
+| DATABASE_PATH | SQLite database path; use durable private storage when deployed |
+| REQUEST_TTL_SECONDS | Allowed clock skew in seconds (default 300) |
+| MAX_PAYLOAD_BYTES | Maximum decoded payload (default 8192) |
+| PORT / HOST | Local bind address and port |
 
-Then open [http://localhost:5000](http://localhost:5000). Hosting platforms can provide `PORT` and `PROXY_SHARED_SECRET` as environment variables.
-
-## Run the tests
-
-No separate test framework is required; the suite uses Python's standard `unittest` module.
-
-```bash
-python -m unittest discover -v
-```
+For production, set environment values through the hosting provider's secret configuration, use HTTPS, rotate keys, secure the database, restrict administrative access, and monitor logs. SQLite and the demo device configuration are suitable for a small educational deployment, not horizontally scaled production traffic.
 
 ## API reference
 
-### `POST /api/simulate`
+- GET /api/health — service health.
+- GET /api/devices — configured device IDs and statuses; never returns keys.
+- POST /api/verify — verify a signed request.
+- GET /api/audit — latest audit events without payloads, signatures, or secrets.
+- PATCH /api/devices/{device_id} — enable/disable a configured device with the X-Admin-Token header and JSON body {"active": false}. Adding a device requires its server-side key to be configured first.
 
-Example body:
+Example signed envelope for POST /api/verify:
 
-```json
-{
-  "device_id": "device_node_01",
-  "data": "Requesting secure records",
-  "tamper_payload": false
-}
-```
+    {
+      "device_id": "device_node_01",
+      "timestamp": 1792600000,
+      "nonce": "9f1b229cab814da0b10001c3b5a5abcd",
+      "payload_b64": "UmVxdWVzdGluZyBzZWN1cmUgcmVjb3Jkcw==",
+      "signature": "64 lowercase hexadecimal characters"
+    }
 
-- `device_id`: non-empty string, up to 100 characters.
-- `data`: text payload, up to 8,000 characters.
-- `tamper_payload`: optional boolean; when `true`, the endpoint deliberately corrupts the generated HMAC tag.
+The signature must be HMAC-SHA256 over the canonical message above, generated with the configured key and a current timestamp.
 
-The endpoint returns JSON with `status` (`success` or `error`) and a human-readable `message`. Expected security rejections are represented in the JSON result so the UI can display them as part of the demonstration.
+## Run tests
 
-## Security notes and limitations
+    python -m unittest discover -v
 
-- The fallback key in `app.py` is a public demonstration value. It is not a secret and must never be used to protect real data. Set `PROXY_SHARED_SECRET` for private experiments and use a proper secret manager in a real deployment.
-- HMAC-SHA256 provides message integrity/authentication relative to holders of the shared key; it is not encryption, does not by itself authenticate the browser's identity, and is not a post-quantum implementation.
-- The in-memory device registry is a teaching aid, not a real identity provider. EAP/802.1X and RADIUS are not implemented.
-- “Forwarding” is simulated. The app does not connect to, authorize against, or forward data to a cloud API or database.
-- A real deployment would require a proper identity provider, protected key storage and rotation, authenticated transport, audit logging, deployment hardening, and a separately designed/benchmarked post-quantum evaluation if that remains a project requirement.
+GitHub Actions runs this suite on pushes and pull requests.
 
-## Focused next steps
+## Security limits and future integrations
 
-Keep future development aligned with the same proxy pipeline: replace the simulated device registry with a real EAP/RADIUS-backed verification path, add a controlled upstream cloud target, and measure any future cryptographic alternatives independently before describing them as implemented. These integrations are **not** part of the current demo.
+- **EAP/802.1X/RADIUS:** this build uses a SQLite device policy registry, not a genuine EAP exchange. A real integration needs a deployed identity/access-control service.
+- **Cloud forwarding:** the policy engine currently produces an allow/deny decision only. It deliberately does not proxy to an arbitrary URL. A future connector should use a fixed allowlisted upstream, TLS verification, timeouts, and explicit authorization mapping.
+- **Post-quantum cryptography:** not implemented. Evaluate an appropriate standardized scheme independently and document its exact role and benchmarks before claiming it is implemented.
+- **Client key entry:** intended only for local learning. A deployed design must provision client keys securely rather than ask people to paste production secrets into a shared browser.
+- **Replay storage:** SQLite demonstrates transactional nonce storage locally. A multi-instance service needs a shared transactional datastore.
+- **Administration:** the admin token is a demonstration control, not a complete identity provider or role-based access-management system.
 
-## Authors
-
-- Sahil Rajkumar Jain
-- Dhruv Gada
-
-Educational microproject for Cryptography and Network Security.
+Future work stays on the same Zero-Trust Cloud Access Proxy pipeline rather than adding unrelated features.
